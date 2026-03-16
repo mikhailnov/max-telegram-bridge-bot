@@ -259,7 +259,7 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 				continue
 			}
 
-			b.forwardTgToMax(ctx, msg, maxChatID, caption)
+			go b.forwardTgToMax(ctx, msg, maxChatID, caption)
 		}
 	}
 }
@@ -450,7 +450,7 @@ func (b *Bridge) handleTgChannelPost(ctx context.Context, msg *tgbotapi.Message)
 
 	caption := formatTgCrosspostCaption(msg)
 
-	b.forwardTgToMax(ctx, msg, maxChatID, caption)
+	go b.forwardTgToMax(ctx, msg, maxChatID, caption)
 }
 
 // handleTgCallback обрабатывает нажатия inline-кнопок (crosspost management).

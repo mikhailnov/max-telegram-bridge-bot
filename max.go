@@ -333,7 +333,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 				if !strings.HasPrefix(text, "[TG]") && !strings.HasPrefix(text, "[MAX]") {
 					prefix := b.repo.HasPrefix("max", chatID)
 					caption := formatMaxCaption(msgUpd, prefix)
-					b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption)
+					go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption)
 				}
 				continue
 			}
@@ -356,7 +356,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 			}
 
 			caption := formatMaxCrosspostCaption(msgUpd)
-			b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption)
+			go b.forwardMaxToTg(ctx, msgUpd, tgChatID, caption)
 		}
 	}
 }
