@@ -152,3 +152,7 @@ export MAX_TOKEN=your_token
 | `MAX_BOT_URL` | Ссылка на MAX-бота (показывается в `/help`) | `https://max.ru/id710708943262_bot` |
 | `WEBHOOK_URL` | Базовый URL для webhook, например `https://bridge.example.com` (если не задан — long polling). Эндпоинты: `/tg-webhook`, `/max-webhook` | — |
 | `WEBHOOK_PORT` | Порт для webhook сервера | `8443` |
+
+## Лицензия
+
+[CC BY-NC 4.0](LICENSE) — свободное использование и модификация, но коммерческое использование только с письменного разрешения автора.
