@@ -619,6 +619,17 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 				sent, sendErr = b.tgBot.Send(doc)
 				mediaSent = true
 			}
+		case *maxschemes.StickerAttachment:
+			if a.Payload.Url != "" {
+				photo := tgbotapi.NewPhoto(tgChatID, tgbotapi.FileURL(a.Payload.Url))
+				photo.Caption = htmlCaption
+				if useHTML {
+					photo.ParseMode = "HTML"
+				}
+				photo.ReplyToMessageID = replyToID
+				sent, sendErr = b.tgBot.Send(photo)
+				mediaSent = true
+			}
 		}
 		if mediaSent {
 			break
