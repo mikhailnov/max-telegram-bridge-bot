@@ -65,7 +65,7 @@ func NewBridge(cfg Config, repo Repository, tgBot *tgbotapi.BotAPI, maxApi *maxb
 		tgBot:  tgBot,
 		maxApi: maxApi,
 		httpClient: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 60 * time.Second,
 		},
 		whSecret:  secret,
 		cpWait:    make(map[int64]int64),
