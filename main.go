@@ -46,6 +46,7 @@ func main() {
 		MaxBotURL:   envOr("MAX_BOT_URL", "https://max.ru/id710708943262_bot"),
 		WebhookURL:  os.Getenv("WEBHOOK_URL"),
 		WebhookPort: envOr("WEBHOOK_PORT", "8443"),
+		TgAPIURL:    os.Getenv("TG_API_URL"),
 	}
 
 	tgToken := mustEnv("TG_TOKEN")
@@ -70,12 +71,22 @@ func main() {
 	}
 	defer repo.Close()
 
-	tgBot, err := tgbotapi.NewBotAPI(tgToken)
-	if err != nil {
-		slog.Error("TG bot error", "err", err)
-		os.Exit(1)
+	var tgBot *tgbotapi.BotAPI
+	if tgAPI := os.Getenv("TG_API_URL"); tgAPI != "" {
+		tgBot, err = tgbotapi.NewBotAPIWithAPIEndpoint(tgToken, tgAPI+"/bot%s/%s")
+		if err != nil {
+			slog.Error("TG bot error", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("Telegram бот запущен (custom API)", "username", tgBot.Self.UserName, "api", tgAPI)
+	} else {
+		tgBot, err = tgbotapi.NewBotAPI(tgToken)
+		if err != nil {
+			slog.Error("TG bot error", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("Telegram бот запущен", "username", tgBot.Self.UserName)
 	}
-	slog.Info("Telegram бот запущен", "username", tgBot.Self.UserName)
 
 	maxApi, err := maxbot.New(cfg.MaxToken)
 	if err != nil {

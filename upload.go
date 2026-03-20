@@ -86,7 +86,7 @@ func (b *Bridge) customUploadToMax(ctx context.Context, uploadType maxschemes.Up
 
 // uploadTgMediaToMax скачивает файл из TG и загружает в MAX
 func (b *Bridge) uploadTgMediaToMax(ctx context.Context, fileID string, uploadType maxschemes.UploadType, fileName string) (*maxschemes.UploadedInfo, error) {
-	fileURL, err := b.tgBot.GetFileDirectURL(fileID)
+	fileURL, err := b.tgFileURL(fileID)
 	if err != nil {
 		return nil, fmt.Errorf("tg getFileURL: %w", err)
 	}

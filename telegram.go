@@ -308,7 +308,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 		// Фото — через SDK (работает)
 		photo := msg.Photo[len(msg.Photo)-1]
 		m := maxbot.NewMessage().SetChat(maxChatID).SetText(caption)
-		if fileURL, err := b.tgBot.GetFileDirectURL(photo.FileID); err == nil {
+		if fileURL, err := b.tgFileURL(photo.FileID); err == nil {
 			if uploaded, err := b.maxApi.Uploads.UploadPhotoFromUrl(ctx, fileURL); err == nil {
 				m.AddPhoto(uploaded)
 			} else {
@@ -357,7 +357,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			}
 		} else {
 			// Обычный стикер WebP → отправляем как фото
-			if fileURL, err := b.tgBot.GetFileDirectURL(msg.Sticker.FileID); err == nil {
+			if fileURL, err := b.tgFileURL(msg.Sticker.FileID); err == nil {
 				if uploaded, err := b.maxApi.Uploads.UploadPhotoFromUrl(ctx, fileURL); err == nil {
 					m := maxbot.NewMessage().SetChat(maxChatID).SetText(caption)
 					m.AddPhoto(uploaded)
