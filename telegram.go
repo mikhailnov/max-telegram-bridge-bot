@@ -497,13 +497,16 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 	}
 
 	if sendErr != nil {
-		slog.Error("TG→MAX send failed", "err", sendErr, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
-		// Ставим в очередь на повторную отправку
-		var format string
-		if hasFormatting {
-			format = "markdown"
+		errStr := sendErr.Error()
+		slog.Error("TG→MAX send failed", "err", errStr, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
+		// 403/404 — permanent error, не ретраим
+		if !strings.Contains(errStr, "403") && !strings.Contains(errStr, "404") && !strings.Contains(errStr, "chat.denied") {
+			var format string
+			if hasFormatting {
+				format = "markdown"
+			}
+			b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, format)
 		}
-		b.enqueueTg2Max(msg.Chat.ID, msg.MessageID, maxChatID, mdCaption, mediaAttType, mediaToken, replyTo, format)
 		if b.cbFail(maxChatID) {
 			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
 				"MAX API недоступен. Сообщения в очереди, будут доставлены автоматически."))

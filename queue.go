@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -109,6 +110,13 @@ func (b *Bridge) processQueue(ctx context.Context) {
 func (b *Bridge) processQueueTg2Max(ctx context.Context, item QueueItem, now time.Time) {
 	mid, err := b.sendMaxDirectFormatted(ctx, item.DstChatID, item.Text, item.AttType, item.AttToken, item.ReplyTo, item.Format)
 	if err != nil {
+		errStr := err.Error()
+		// Permanent errors — дропаем
+		if strings.Contains(errStr, "403") || strings.Contains(errStr, "404") || strings.Contains(errStr, "chat.denied") {
+			slog.Warn("queue item dropped (permanent error)", "id", item.ID, "err", errStr)
+			b.repo.DeleteFromQueue(item.ID)
+			return
+		}
 		slog.Warn("queue retry failed", "id", item.ID, "dir", "tg2max", "attempt", item.Attempts+1, "err", err)
 		b.repo.IncrementAttempt(item.ID, now.Add(retryDelay(item.Attempts+1)).Unix())
 		return
