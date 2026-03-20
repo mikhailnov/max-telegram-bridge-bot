@@ -580,67 +580,27 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	}
 
 	for _, att := range body.Attachments {
+		var attURL, attType string
 		switch a := att.(type) {
 		case *maxschemes.PhotoAttachment:
-			if a.Payload.Url != "" {
-				qAttType, qAttURL = "photo", a.Payload.Url
-				photo := tgbotapi.NewPhoto(tgChatID, tgbotapi.FileURL(a.Payload.Url))
-				photo.Caption = htmlCaption
-				if useHTML {
-					photo.ParseMode = "HTML"
-				}
-				photo.ReplyToMessageID = replyToID
-				sent, sendErr = b.tgBot.Send(photo)
-				mediaSent = true
-			}
+			attURL, attType = a.Payload.Url, "photo"
 		case *maxschemes.VideoAttachment:
-			if a.Payload.Url != "" {
-				qAttType, qAttURL = "video", a.Payload.Url
-				video := tgbotapi.NewVideo(tgChatID, tgbotapi.FileURL(a.Payload.Url))
-				video.Caption = htmlCaption
-				if useHTML {
-					video.ParseMode = "HTML"
-				}
-				video.ReplyToMessageID = replyToID
-				sent, sendErr = b.tgBot.Send(video)
-				mediaSent = true
-			}
+			attURL, attType = a.Payload.Url, "video"
 		case *maxschemes.AudioAttachment:
-			if a.Payload.Url != "" {
-				qAttType, qAttURL = "audio", a.Payload.Url
-				audio := tgbotapi.NewAudio(tgChatID, tgbotapi.FileURL(a.Payload.Url))
-				audio.Caption = htmlCaption
-				if useHTML {
-					audio.ParseMode = "HTML"
-				}
-				audio.ReplyToMessageID = replyToID
-				sent, sendErr = b.tgBot.Send(audio)
-				mediaSent = true
-			}
+			attURL, attType = a.Payload.Url, "audio"
 		case *maxschemes.FileAttachment:
-			if a.Payload.Url != "" {
-				qAttType, qAttURL = "file", a.Payload.Url
-				doc := tgbotapi.NewDocument(tgChatID, tgbotapi.FileURL(a.Payload.Url))
-				doc.Caption = htmlCaption
-				if useHTML {
-					doc.ParseMode = "HTML"
-				}
-				doc.ReplyToMessageID = replyToID
-				sent, sendErr = b.tgBot.Send(doc)
-				mediaSent = true
-			}
+			attURL, attType = a.Payload.Url, "file"
 		case *maxschemes.StickerAttachment:
-			if a.Payload.Url != "" {
-				qAttType, qAttURL = "sticker", a.Payload.Url
-				photo := tgbotapi.NewPhoto(tgChatID, tgbotapi.FileURL(a.Payload.Url))
-				photo.Caption = htmlCaption
-				if useHTML {
-					photo.ParseMode = "HTML"
-				}
-				photo.ReplyToMessageID = replyToID
-				sent, sendErr = b.tgBot.Send(photo)
-				mediaSent = true
+			attURL, attType = a.Payload.Url, "sticker"
+		}
+		if attURL != "" {
+			qAttType, qAttURL = attType, attURL
+			pm := ""
+			if useHTML {
+				pm = "HTML"
 			}
+			sent, sendErr = b.sendTgMediaFromURL(tgChatID, attURL, attType, htmlCaption, pm, replyToID)
+			mediaSent = true
 		}
 		if mediaSent {
 			break

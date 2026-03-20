@@ -13,7 +13,71 @@ import (
 	"time"
 
 	maxschemes "github.com/max-messenger/max-bot-api-client-go/schemes"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+// downloadURL скачивает файл по URL и возвращает bytes.
+func (b *Bridge) downloadURL(url string) ([]byte, error) {
+	resp, err := b.httpClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("download status %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// sendTgMediaFromURL скачивает файл с URL и отправляет в TG как upload.
+func (b *Bridge) sendTgMediaFromURL(tgChatID int64, mediaURL, mediaType, caption, parseMode string, replyToID int) (tgbotapi.Message, error) {
+	data, err := b.downloadURL(mediaURL)
+	if err != nil {
+		return tgbotapi.Message{}, fmt.Errorf("download media: %w", err)
+	}
+
+	fb := tgbotapi.FileBytes{Name: "file", Bytes: data}
+
+	switch mediaType {
+	case "photo":
+		msg := tgbotapi.NewPhoto(tgChatID, fb)
+		msg.Caption = caption
+		if parseMode != "" {
+			msg.ParseMode = parseMode
+		}
+		msg.ReplyToMessageID = replyToID
+		return b.tgBot.Send(msg)
+	case "video":
+		msg := tgbotapi.NewVideo(tgChatID, fb)
+		msg.Caption = caption
+		if parseMode != "" {
+			msg.ParseMode = parseMode
+		}
+		msg.ReplyToMessageID = replyToID
+		return b.tgBot.Send(msg)
+	case "audio":
+		msg := tgbotapi.NewAudio(tgChatID, fb)
+		msg.Caption = caption
+		if parseMode != "" {
+			msg.ParseMode = parseMode
+		}
+		msg.ReplyToMessageID = replyToID
+		return b.tgBot.Send(msg)
+	case "file":
+		msg := tgbotapi.NewDocument(tgChatID, fb)
+		msg.Caption = caption
+		if parseMode != "" {
+			msg.ParseMode = parseMode
+		}
+		msg.ReplyToMessageID = replyToID
+		return b.tgBot.Send(msg)
+	default:
+		// sticker и прочее — как фото
+		msg := tgbotapi.NewPhoto(tgChatID, fb)
+		msg.Caption = caption
+		return b.tgBot.Send(msg)
+	}
+}
 
 // customUploadToMax — обход бага SDK: CDN возвращает XML вместо JSON
 func (b *Bridge) customUploadToMax(ctx context.Context, uploadType maxschemes.UploadType, reader io.Reader, fileName string) (*maxschemes.UploadedInfo, error) {
