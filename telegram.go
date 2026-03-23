@@ -193,8 +193,10 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					continue
 				}
 
-				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
-					fmt.Sprintf("TG-канал «%s»\nID: %d\n\nВ личке MAX-бота напишите:\n/crosspost %d\n\nЗатем перешлите пост из MAX-канала.", channelTitle, channelID, channelID)))
+				cpMsg := tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("TG-канал «%s»\nID: `%d`\n\nВ личке MAX-бота напишите:\n`/crosspost %d`\n\nMAX-бот: %s\n\nЗатем перешлите пост из MAX-канала.", channelTitle, channelID, channelID, b.cfg.MaxBotURL))
+				cpMsg.ParseMode = "Markdown"
+				b.tgBot.Send(cpMsg)
 				continue
 			}
 
@@ -249,8 +251,10 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Связано! Сообщения теперь пересылаются."))
 					slog.Info("paired", "platform", "tg", "chat", msg.Chat.ID, "key", key)
 				} else if generatedKey != "" {
-					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
-						fmt.Sprintf("Ключ для связки: %s\n\nОтправьте в MAX-чате:\n/bridge %s", generatedKey, generatedKey)))
+					keyMsg := tgbotapi.NewMessage(msg.Chat.ID,
+						fmt.Sprintf("Ключ для связки: `%s`\n\nОтправьте в MAX-чате:\n`/bridge %s`\n\nMAX-бот: %s", generatedKey, generatedKey, b.cfg.MaxBotURL))
+					keyMsg.ParseMode = "Markdown"
+					b.tgBot.Send(keyMsg)
 					slog.Info("pending", "platform", "tg", "chat", msg.Chat.ID, "key", generatedKey)
 				} else {
 					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Ключ не найден или чат той же платформы."))

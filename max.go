@@ -217,7 +217,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					slog.Info("paired", "platform", "max", "chat", chatID, "key", key)
 				} else if generatedKey != "" {
 					m := maxbot.NewMessage().SetChat(chatID).
-						SetText(fmt.Sprintf("Ключ для связки: %s\n\nОтправьте в Telegram-чате:\n/bridge %s", generatedKey, generatedKey))
+						SetText(fmt.Sprintf("Ключ для связки: %s\n\nОтправьте в Telegram-чате:\n/bridge %s\n\nTG-бот: %s", generatedKey, generatedKey, b.cfg.TgBotURL))
 					b.maxApi.Messages.Send(ctx, m)
 					slog.Info("pending", "platform", "max", "chat", chatID, "key", generatedKey)
 				} else {
