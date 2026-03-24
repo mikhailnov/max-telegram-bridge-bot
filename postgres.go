@@ -81,13 +81,13 @@ func (r *pgRepo) GetTgChat(maxChatID int64) (int64, bool) {
 	return id, err == nil
 }
 
-func (r *pgRepo) SaveMsg(tgChatID int64, tgMsgID int, maxChatID int64, maxMsgID string) {
+func (r *pgRepo) SaveMsg(tgChatID int64, tgMsgID int, maxChatID int64, maxMsgID string, hasMedia bool) {
 	r.db.Exec(
-		`INSERT INTO messages (tg_chat_id, tg_msg_id, max_chat_id, max_msg_id, created_at)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO messages (tg_chat_id, tg_msg_id, max_chat_id, max_msg_id, created_at, has_media)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (tg_chat_id, tg_msg_id) DO UPDATE
-		 SET max_chat_id = EXCLUDED.max_chat_id, max_msg_id = EXCLUDED.max_msg_id, created_at = EXCLUDED.created_at`,
-		tgChatID, tgMsgID, maxChatID, maxMsgID, time.Now().Unix())
+		 SET max_chat_id = EXCLUDED.max_chat_id, max_msg_id = EXCLUDED.max_msg_id, created_at = EXCLUDED.created_at, has_media = EXCLUDED.has_media`,
+		tgChatID, tgMsgID, maxChatID, maxMsgID, time.Now().Unix(), hasMedia)
 }
 
 func (r *pgRepo) LookupMaxMsgID(tgChatID int64, tgMsgID int) (string, bool) {
@@ -101,6 +101,38 @@ func (r *pgRepo) LookupTgMsgID(maxMsgID string) (int64, int, bool) {
 	var msgID int
 	err := r.db.QueryRow("SELECT tg_chat_id, tg_msg_id FROM messages WHERE max_msg_id = $1", maxMsgID).Scan(&chatID, &msgID)
 	return chatID, msgID, err == nil
+}
+
+func (r *pgRepo) LookupMsgCreatedAt(maxMsgID string) (int64, bool) {
+	var ts int64
+	err := r.db.QueryRow("SELECT created_at FROM messages WHERE max_msg_id = $1", maxMsgID).Scan(&ts)
+	return ts, err == nil
+}
+
+func (r *pgRepo) DeleteMsgByMaxID(maxMsgID string) {
+	r.db.Exec("DELETE FROM messages WHERE max_msg_id = $1", maxMsgID)
+}
+
+func (r *pgRepo) LookupAllTgMsgIDs(maxMsgID string) []int {
+	rows, err := r.db.Query("SELECT tg_msg_id FROM messages WHERE max_msg_id = $1", maxMsgID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var ids []int
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func (r *pgRepo) LookupMsgHasMedia(maxMsgID string) bool {
+	var v bool
+	err := r.db.QueryRow("SELECT has_media FROM messages WHERE max_msg_id = $1", maxMsgID).Scan(&v)
+	return err == nil && v
 }
 
 func (r *pgRepo) CleanOldMessages() {

@@ -124,7 +124,7 @@ func (b *Bridge) processQueueTg2Max(ctx context.Context, item QueueItem, now tim
 	slog.Info("queue retry ok", "id", item.ID, "dir", "tg2max", "mid", mid)
 	tgMsgID, _ := strconv.Atoi(item.SrcMsgID)
 	if tgMsgID > 0 {
-		b.repo.SaveMsg(item.SrcChatID, tgMsgID, item.DstChatID, mid)
+		b.repo.SaveMsg(item.SrcChatID, tgMsgID, item.DstChatID, mid, item.AttType != "")
 	}
 	b.repo.DeleteFromQueue(item.ID)
 }
@@ -183,6 +183,6 @@ func (b *Bridge) processQueueMax2Tg(item QueueItem, now time.Time) {
 		return
 	}
 	slog.Info("queue retry ok", "id", item.ID, "dir", "max2tg", "msgID", sent.MessageID)
-	b.repo.SaveMsg(item.DstChatID, sent.MessageID, item.SrcChatID, item.SrcMsgID)
+	b.repo.SaveMsg(item.DstChatID, sent.MessageID, item.SrcChatID, item.SrcMsgID, item.AttType != "")
 	b.repo.DeleteFromQueue(item.ID)
 }

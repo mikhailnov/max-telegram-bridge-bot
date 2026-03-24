@@ -160,5 +160,5 @@ func (b *Bridge) flushMediaGroup(ctx context.Context, groupID string) {
 	b.cbSuccess(maxChatID)
 	slog.Info("TG→MAX media group sent", "mid", result.Body.Mid, "photos", photosSent)
 	// Сохраняем маппинг для первого сообщения группы (для reply)
-	b.repo.SaveMsg(items[0].msg.Chat.ID, items[0].msg.MessageID, maxChatID, result.Body.Mid)
+	b.repo.SaveMsg(items[0].msg.Chat.ID, items[0].msg.MessageID, maxChatID, result.Body.Mid, true)
 }

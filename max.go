@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	maxbot "github.com/max-messenger/max-bot-api-client-go"
 	maxschemes "github.com/max-messenger/max-bot-api-client-go/schemes"
@@ -74,7 +75,49 @@ func (b *Bridge) listenMax(ctx context.Context) {
 				if !ok {
 					continue
 				}
-				prefix := b.repo.HasPrefix("max", editUpd.Message.Recipient.ChatId)
+				maxChatID := editUpd.Message.Recipient.ChatId
+
+				// Если edit содержит медиа — удаляем все старые TG-сообщения альбома и отправляем новые
+				if len(editUpd.Message.Body.Attachments) > 0 {
+					// Получаем время исходного сообщения для пометки
+					editNote := ""
+					if createdAt, ok := b.repo.LookupMsgCreatedAt(mid); ok {
+						editNote = fmt.Sprintf("\n<i>Отредактировано сообщение от %s</i>",
+							time.Unix(createdAt, 0).Format("02.01.2006 15:04"))
+					}
+					// Удаляем все TG-сообщения (для альбомов может быть несколько)
+					for _, id := range b.repo.LookupAllTgMsgIDs(mid) {
+						b.tgBot.Request(tgbotapi.NewDeleteMessage(tgChatID, id))
+					}
+					b.repo.DeleteMsgByMaxID(mid)
+					prefix := b.repo.HasPrefix("max", maxChatID)
+					fakeCreated := &maxschemes.MessageCreatedUpdate{Message: editUpd.Message}
+					caption := formatMaxCaption(fakeCreated, prefix) + editNote
+					go b.forwardMaxToTg(ctx, fakeCreated, tgChatID, caption, "HTML")
+					continue
+				}
+
+				prefix := b.repo.HasPrefix("max", maxChatID)
+
+				// Оригинал имел медиа, а edit без — удаляем и пересоздаём как текст.
+				// has_media может быть false для старых записей до миграции,
+				// поэтому также проверяем количество TG-сообщений (альбом = несколько).
+				if b.repo.LookupMsgHasMedia(mid) || len(b.repo.LookupAllTgMsgIDs(mid)) > 1 {
+					editNote := ""
+					if createdAt, ok := b.repo.LookupMsgCreatedAt(mid); ok {
+						editNote = fmt.Sprintf("\n<i>Отредактировано сообщение от %s</i>",
+							time.Unix(createdAt, 0).Format("02.01.2006 15:04"))
+					}
+					for _, id := range b.repo.LookupAllTgMsgIDs(mid) {
+						b.tgBot.Request(tgbotapi.NewDeleteMessage(tgChatID, id))
+					}
+					b.repo.DeleteMsgByMaxID(mid)
+					fakeCreated := &maxschemes.MessageCreatedUpdate{Message: editUpd.Message}
+					caption := formatMaxCaption(fakeCreated, prefix) + editNote
+					go b.forwardMaxToTg(ctx, fakeCreated, tgChatID, caption, "HTML")
+					continue
+				}
+
 				name := editUpd.Message.Sender.Name
 				if name == "" {
 					name = editUpd.Message.Sender.Username
@@ -542,7 +585,8 @@ func maxCrosspostStatusText(tgChatID int64, direction string) string {
 }
 
 // forwardMaxToTg пересылает MAX-сообщение (текст/медиа) в TG-чат.
-func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageCreatedUpdate, tgChatID int64, caption string) {
+// parseMode: если не пустой — принудительно используется для caption.
+func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageCreatedUpdate, tgChatID int64, caption string, parseMode ...string) {
 	if b.cbBlocked(tgChatID) {
 		return
 	}
@@ -588,6 +632,9 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	pm := ""
 	if useHTML {
 		pm = "HTML"
+	}
+	if len(parseMode) > 0 && parseMode[0] != "" {
+		pm = parseMode[0]
 	}
 
 	for _, att := range body.Attachments {
@@ -677,6 +724,11 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 				sendErr = err
 			} else if len(msgs) > 0 {
 				sent = msgs[0]
+				// SendMediaGroup возвращает массив сообщений — сохраняем маппинг для каждого,
+				// чтобы при редактировании можно было удалить все сообщения альбома
+				for _, m := range msgs {
+					b.repo.SaveMsg(tgChatID, m.MessageID, chatID, body.Mid, true)
+				}
 			}
 		}
 	}
@@ -709,6 +761,9 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 			sent, sendErr = b.tgBot.Send(tgMsg)
 		} else {
 			tgMsg := tgbotapi.NewMessage(tgChatID, caption)
+			if pm != "" {
+				tgMsg.ParseMode = pm
+			}
 			tgMsg.ReplyToMessageID = replyToID
 			sent, sendErr = b.tgBot.Send(tgMsg)
 		}
@@ -728,6 +783,6 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	} else {
 		b.cbSuccess(tgChatID)
 		slog.Info("MAX→TG sent", "msgID", sent.MessageID, "media", mediaSent, "uid", msgUpd.Message.Sender.UserId, "maxChat", chatID, "tgChat", tgChatID)
-		b.repo.SaveMsg(tgChatID, sent.MessageID, chatID, body.Mid)
+		b.repo.SaveMsg(tgChatID, sent.MessageID, chatID, body.Mid, mediaSent)
 	}
 }

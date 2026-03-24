@@ -17,9 +17,13 @@ type Repository interface {
 	GetMaxChat(tgChatID int64) (int64, bool)
 	GetTgChat(maxChatID int64) (int64, bool)
 
-	SaveMsg(tgChatID int64, tgMsgID int, maxChatID int64, maxMsgID string)
+	SaveMsg(tgChatID int64, tgMsgID int, maxChatID int64, maxMsgID string, hasMedia bool)
 	LookupMaxMsgID(tgChatID int64, tgMsgID int) (string, bool)
 	LookupTgMsgID(maxMsgID string) (int64, int, bool)
+	LookupMsgCreatedAt(maxMsgID string) (int64, bool)
+	DeleteMsgByMaxID(maxMsgID string)
+	LookupAllTgMsgIDs(maxMsgID string) []int
+	LookupMsgHasMedia(maxMsgID string) bool
 	CleanOldMessages()
 
 	HasPrefix(platform string, chatID int64) bool

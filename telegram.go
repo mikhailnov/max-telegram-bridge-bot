@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	maxbot "github.com/max-messenger/max-bot-api-client-go"
 	maxschemes "github.com/max-messenger/max-bot-api-client-go/schemes"
@@ -70,12 +71,18 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 					continue
 				}
 
-				// Если edit содержит медиа — отправляем как новое сообщение
+				// Если edit содержит медиа — удаляем старое в MAX и отправляем как новое
 				hasMedia := edited.Photo != nil || edited.Video != nil || edited.Document != nil ||
 					edited.Animation != nil || edited.Sticker != nil || edited.Voice != nil || edited.Audio != nil
 				if hasMedia {
+					if oldMaxMsgID, ok := b.repo.LookupMaxMsgID(edited.Chat.ID, edited.MessageID); ok {
+						b.maxApi.Messages.DeleteMessage(ctx, oldMaxMsgID)
+					}
 					prefix := b.repo.HasPrefix("tg", edited.Chat.ID)
 					caption := formatTgCaption(edited, prefix)
+					editNote := fmt.Sprintf("\n*Отредактировано сообщение от %s*",
+						time.Unix(int64(edited.Date), 0).Format("02.01.2006 15:04"))
+					caption += editNote
 					go b.forwardTgToMax(ctx, edited, maxChatID, caption)
 					continue
 				}
@@ -375,7 +382,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 		} else {
 			b.cbSuccess(maxChatID)
 			slog.Info("TG→MAX sent", "mid", result.Body.Mid)
-			b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid)
+			b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid, true)
 		}
 		return
 	} else if msg.Animation != nil {
@@ -416,7 +423,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 						slog.Error("TG→MAX sticker send failed", "err", err)
 					} else {
 						slog.Info("TG→MAX sent", "mid", result.Body.Mid)
-						b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid)
+						b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid, true)
 					}
 					return
 				} else {
@@ -558,7 +565,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 	} else {
 		b.cbSuccess(maxChatID)
 		slog.Info("TG→MAX sent", "mid", mid, "uid", uid, "tgChat", msg.Chat.ID, "maxChat", maxChatID)
-		b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, mid)
+		b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, mid, mediaAttType != "")
 	}
 }
 

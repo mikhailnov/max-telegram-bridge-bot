@@ -76,9 +76,13 @@ func (r *sqliteRepo) GetTgChat(maxChatID int64) (int64, bool) {
 	return id, err == nil
 }
 
-func (r *sqliteRepo) SaveMsg(tgChatID int64, tgMsgID int, maxChatID int64, maxMsgID string) {
-	r.db.Exec("INSERT OR REPLACE INTO messages (tg_chat_id, tg_msg_id, max_chat_id, max_msg_id, created_at) VALUES (?, ?, ?, ?, ?)",
-		tgChatID, tgMsgID, maxChatID, maxMsgID, time.Now().Unix())
+func (r *sqliteRepo) SaveMsg(tgChatID int64, tgMsgID int, maxChatID int64, maxMsgID string, hasMedia bool) {
+	mediaFlag := 0
+	if hasMedia {
+		mediaFlag = 1
+	}
+	r.db.Exec("INSERT OR REPLACE INTO messages (tg_chat_id, tg_msg_id, max_chat_id, max_msg_id, created_at, has_media) VALUES (?, ?, ?, ?, ?, ?)",
+		tgChatID, tgMsgID, maxChatID, maxMsgID, time.Now().Unix(), mediaFlag)
 }
 
 func (r *sqliteRepo) LookupMaxMsgID(tgChatID int64, tgMsgID int) (string, bool) {
@@ -92,6 +96,38 @@ func (r *sqliteRepo) LookupTgMsgID(maxMsgID string) (int64, int, bool) {
 	var msgID int
 	err := r.db.QueryRow("SELECT tg_chat_id, tg_msg_id FROM messages WHERE max_msg_id = ?", maxMsgID).Scan(&chatID, &msgID)
 	return chatID, msgID, err == nil
+}
+
+func (r *sqliteRepo) LookupMsgCreatedAt(maxMsgID string) (int64, bool) {
+	var ts int64
+	err := r.db.QueryRow("SELECT created_at FROM messages WHERE max_msg_id = ?", maxMsgID).Scan(&ts)
+	return ts, err == nil
+}
+
+func (r *sqliteRepo) DeleteMsgByMaxID(maxMsgID string) {
+	r.db.Exec("DELETE FROM messages WHERE max_msg_id = ?", maxMsgID)
+}
+
+func (r *sqliteRepo) LookupAllTgMsgIDs(maxMsgID string) []int {
+	rows, err := r.db.Query("SELECT tg_msg_id FROM messages WHERE max_msg_id = ?", maxMsgID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var ids []int
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func (r *sqliteRepo) LookupMsgHasMedia(maxMsgID string) bool {
+	var v int
+	err := r.db.QueryRow("SELECT has_media FROM messages WHERE max_msg_id = ?", maxMsgID).Scan(&v)
+	return err == nil && v == 1
 }
 
 func (r *sqliteRepo) CleanOldMessages() {
