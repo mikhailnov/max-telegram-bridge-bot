@@ -80,7 +80,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					name = editUpd.Message.Sender.Username
 				}
 				text := editUpd.Message.Body.Text
-				if text == "" || strings.HasPrefix(text, "[TG]") || strings.HasPrefix(text, "[MAX]") {
+				if strings.HasPrefix(text, "[TG]") || strings.HasPrefix(text, "[MAX]") {
 					continue
 				}
 				var fwd string
@@ -88,6 +88,72 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					fwd = fmt.Sprintf("[MAX] %s: %s", name, text)
 				} else {
 					fwd = fmt.Sprintf("%s: %s", name, text)
+				}
+
+				// Проверяем вложения в edit — если есть медиа, используем editMessageMedia
+				var mediaURL, mediaType string
+				for _, att := range editUpd.Message.Body.Attachments {
+					switch a := att.(type) {
+					case *maxschemes.PhotoAttachment:
+						if a.Payload.Url != "" {
+							mediaURL, mediaType = a.Payload.Url, "photo"
+						}
+					case *maxschemes.VideoAttachment:
+						if a.Payload.Url != "" {
+							mediaURL, mediaType = a.Payload.Url, "video"
+						}
+					case *maxschemes.FileAttachment:
+						if a.Payload.Url != "" {
+							mediaURL, mediaType = a.Payload.Url, "document"
+						}
+					}
+					if mediaURL != "" {
+						break
+					}
+				}
+
+				if mediaURL != "" {
+					// Скачиваем медиа и отправляем editMessageMedia
+					data, dlErr := b.downloadURL(mediaURL)
+					if dlErr != nil {
+						slog.Error("MAX→TG edit media download failed", "err", dlErr)
+					} else {
+						fb := tgbotapi.FileBytes{Name: "file", Bytes: data}
+						var media interface{}
+						switch mediaType {
+						case "photo":
+							p := tgbotapi.NewInputMediaPhoto(fb)
+							p.Caption = fwd
+							media = p
+						case "video":
+							v := tgbotapi.NewInputMediaVideo(fb)
+							v.Caption = fwd
+							media = v
+						case "document":
+							d := tgbotapi.NewInputMediaDocument(fb)
+							d.Caption = fwd
+							media = d
+						}
+						editMedia := tgbotapi.EditMessageMediaConfig{
+							BaseEdit: tgbotapi.BaseEdit{
+								ChatID:    tgChatID,
+								MessageID: tgMsgID,
+							},
+							Media: media,
+						}
+						if _, err := b.tgBot.Send(editMedia); err != nil {
+							slog.Error("MAX→TG edit media failed", "err", err, "uid", editUpd.Message.Sender.UserId)
+							// Fallback — отправляем как новое сообщение
+							go b.sendTgMediaFromURL(tgChatID, mediaURL, mediaType, fwd, "", 0)
+						} else {
+							slog.Info("MAX→TG edited media", "tgMsg", tgMsgID, "type", mediaType, "uid", editUpd.Message.Sender.UserId)
+						}
+						continue
+					}
+				}
+
+				if text == "" {
+					continue
 				}
 				editMsg := tgbotapi.NewEditMessageText(tgChatID, tgMsgID, fwd)
 				if _, err := b.tgBot.Send(editMsg); err != nil {
