@@ -30,13 +30,18 @@ func (b *Bridge) downloadURL(url string) ([]byte, error) {
 }
 
 // sendTgMediaFromURL скачивает файл с URL и отправляет в TG как upload.
-func (b *Bridge) sendTgMediaFromURL(tgChatID int64, mediaURL, mediaType, caption, parseMode string, replyToID int) (tgbotapi.Message, error) {
+// fileName — если не пустой, используется как имя файла; иначе извлекается из URL.
+func (b *Bridge) sendTgMediaFromURL(tgChatID int64, mediaURL, mediaType, caption, parseMode string, replyToID int, fileName ...string) (tgbotapi.Message, error) {
 	data, err := b.downloadURL(mediaURL)
 	if err != nil {
 		return tgbotapi.Message{}, fmt.Errorf("download media: %w", err)
 	}
 
-	fb := tgbotapi.FileBytes{Name: "file", Bytes: data}
+	name := fileNameFromURL(mediaURL)
+	if len(fileName) > 0 && fileName[0] != "" {
+		name = fileName[0]
+	}
+	fb := tgbotapi.FileBytes{Name: name, Bytes: data}
 
 	switch mediaType {
 	case "photo":

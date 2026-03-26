@@ -118,7 +118,7 @@ func (b *Bridge) listenMax(ctx context.Context) {
 					if dlErr != nil {
 						slog.Error("MAX→TG edit media download failed", "err", dlErr)
 					} else {
-						fb := tgbotapi.FileBytes{Name: "file", Bytes: data}
+						fb := tgbotapi.FileBytes{Name: fileNameFromURL(mediaURL), Bytes: data}
 						var media interface{}
 						switch mediaType {
 						case "photo":
@@ -889,6 +889,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	var soloMedia []struct {
 		url     string
 		attType string
+		name    string
 	}
 	pm := ""
 	if useHTML {
@@ -921,7 +922,8 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 				soloMedia = append(soloMedia, struct {
 					url     string
 					attType string
-				}{a.Payload.Url, "audio"})
+					name    string
+				}{a.Payload.Url, "audio", ""})
 			}
 		case *maxschemes.FileAttachment:
 			if a.Payload.Url != "" {
@@ -931,7 +933,8 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 				soloMedia = append(soloMedia, struct {
 					url     string
 					attType string
-				}{a.Payload.Url, "file"})
+					name    string
+				}{a.Payload.Url, "file", a.Filename})
 			}
 		case *maxschemes.StickerAttachment:
 			if a.Payload.Url != "" {
@@ -941,7 +944,8 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 				soloMedia = append(soloMedia, struct {
 					url     string
 					attType string
-				}{a.Payload.Url, "sticker"})
+					name    string
+				}{a.Payload.Url, "sticker", ""})
 			}
 		}
 	}
@@ -988,7 +992,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 
 	// Отправляем остальные вложения (аудио, файлы, стикеры) по одному
 	for _, sm := range soloMedia {
-		s, err := b.sendTgMediaFromURL(tgChatID, sm.url, sm.attType, "", "", 0)
+		s, err := b.sendTgMediaFromURL(tgChatID, sm.url, sm.attType, "", "", 0, sm.name)
 		if err != nil {
 			slog.Error("MAX→TG solo media send failed", "type", sm.attType, "err", err)
 			if sendErr == nil {
