@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -546,10 +548,25 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 		if checkSize(msg.Document.FileSize, name) {
 			return
 		}
+		// Pre-check расширения до отправки на CDN (если whitelist задан)
+		if b.cfg.MaxAllowedExts != nil && attType == "file" {
+			ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+			if _, ok := b.cfg.MaxAllowedExts[ext]; !ok {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (расширение .%s не разрешено).", name, ext)))
+				return
+			}
+		}
 		if uploaded, err := b.uploadTgMediaToMax(ctx, msg.Document.FileID, uploadType, name); err == nil {
 			mediaToken = uploaded.Token
 			mediaAttType = attType
 		} else {
+			var e *ErrForbiddenExtension
+			if errors.As(err, &e) {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", name)))
+				return
+			}
 			slog.Error("TG→MAX file upload failed", "err", err)
 		}
 	} else if msg.Voice != nil {
@@ -560,6 +577,12 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			mediaToken = uploaded.Token
 			mediaAttType = "audio"
 		} else {
+			var e *ErrForbiddenExtension
+			if errors.As(err, &e) {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", e.Name)))
+				return
+			}
 			slog.Error("TG→MAX voice upload failed", "err", err)
 		}
 	} else if msg.Audio != nil {
@@ -570,10 +593,25 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 		if checkSize(msg.Audio.FileSize, name) {
 			return
 		}
+		// Pre-check расширения до отправки на CDN (если whitelist задан)
+		if b.cfg.MaxAllowedExts != nil {
+			ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+			if _, ok := b.cfg.MaxAllowedExts[ext]; !ok {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (расширение .%s не разрешено).", name, ext)))
+				return
+			}
+		}
 		if uploaded, err := b.uploadTgMediaToMax(ctx, msg.Audio.FileID, maxschemes.FILE, name); err == nil {
 			mediaToken = uploaded.Token
 			mediaAttType = "file"
 		} else {
+			var e *ErrForbiddenExtension
+			if errors.As(err, &e) {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", name)))
+				return
+			}
 			slog.Error("TG→MAX audio upload failed", "err", err)
 		}
 	}
