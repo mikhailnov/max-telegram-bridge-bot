@@ -993,6 +993,8 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 			if err != nil {
 				slog.Error("MAX→TG album send failed", "err", err)
 				sendErr = err
+				m := maxbot.NewMessage().SetChat(chatID).SetText("Не удалось отправить медиаальбом в Telegram.")
+				b.maxApi.Messages.Send(ctx, m)
 			} else if len(msgs) > 0 {
 				sent = msgs[0]
 			}
@@ -1000,7 +1002,7 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 	}
 
 	// Отправляем остальные вложения (аудио, файлы, стикеры) по одному
-	// Caption и reply на первое solo вложение если фото/видео не отправлялось
+	// Если фото/видео не отправлялось, caption добавляем к первому вложению
 	firstSolo := true
 	for _, sm := range soloMedia {
 		smCaption := ""
@@ -1021,6 +1023,9 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 				b.maxApi.Messages.Send(ctx, m)
 			} else {
 				slog.Error("MAX→TG solo media send failed", "type", sm.attType, "err", err)
+				m := maxbot.NewMessage().SetChat(chatID).SetText(
+					fmt.Sprintf("Не удалось отправить файл \"%s\" в Telegram.", sm.name))
+				b.maxApi.Messages.Send(ctx, m)
 			}
 			if sendErr == nil {
 				sendErr = err
@@ -1056,11 +1061,18 @@ func (b *Bridge) forwardMaxToTg(ctx context.Context, msgUpd *maxschemes.MessageC
 		if useHTML {
 			parseMode = "HTML"
 		}
-		b.enqueueMax2Tg(chatID, tgChatID, body.Mid, htmlCaption, qAttType, qAttURL, parseMode)
-		if b.cbFail(tgChatID) {
-			m := maxbot.NewMessage().SetChat(chatID).SetText("TG API недоступен. Сообщения в очереди, будут доставлены автоматически.")
+		// ErrFileTooLarge уже уведомил пользователя выше — не дублируем
+		var eTooLarge *ErrFileTooLarge
+		if !errors.As(sendErr, &eTooLarge) {
+			notifyText := "Не удалось переслать сообщение в Telegram. Попробуем ещё раз автоматически."
+			if b.cbBlocked(tgChatID) {
+				notifyText = "TG API недоступен. Сообщения в очереди, будут доставлены автоматически."
+			}
+			m := maxbot.NewMessage().SetChat(chatID).SetText(notifyText)
 			b.maxApi.Messages.Send(ctx, m)
 		}
+		b.enqueueMax2Tg(chatID, tgChatID, body.Mid, htmlCaption, qAttType, qAttURL, parseMode)
+		b.cbFail(tgChatID)
 	} else {
 		b.cbSuccess(tgChatID)
 		slog.Info("MAX→TG sent", "msgID", sent.MessageID, "media", mediaSent, "uid", msgUpd.Message.Sender.UserId, "maxChat", chatID, "tgChat", tgChatID)

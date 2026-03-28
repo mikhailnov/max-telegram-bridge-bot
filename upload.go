@@ -104,11 +104,24 @@ func (b *Bridge) customUploadToMax(ctx context.Context, uploadType maxschemes.Up
 		return nil, fmt.Errorf("upload endpoint status: %d", resp.StatusCode)
 	}
 
+	endpointBody, _ := io.ReadAll(resp.Body)
+	slog.Debug("MAX upload endpoint response", "status", resp.StatusCode, "body", string(endpointBody))
+
 	var endpoint maxschemes.UploadEndpoint
-	if err := json.NewDecoder(resp.Body).Decode(&endpoint); err != nil {
+	if err := json.Unmarshal(endpointBody, &endpoint); err != nil {
 		return nil, fmt.Errorf("decode upload endpoint: %w", err)
 	}
-	slog.Debug("MAX upload endpoint", "url", endpoint.Url)
+	slog.Debug("MAX upload endpoint", "url", endpoint.Url, "token", endpoint.Token)
+
+	// Если токен уже в ответе шага 1 — CDN загрузка не нужна
+	if endpoint.Token != "" {
+		slog.Debug("MAX upload ok (endpoint token, no CDN needed)")
+		return &maxschemes.UploadedInfo{Token: endpoint.Token}, nil
+	}
+
+	if endpoint.Url == "" {
+		return nil, fmt.Errorf("upload endpoint returned empty URL and no token")
+	}
 
 	// 2. Загружаем файл на CDN (multipart)
 	var buf bytes.Buffer
@@ -135,7 +148,17 @@ func (b *Bridge) customUploadToMax(ctx context.Context, uploadType maxschemes.Up
 	defer cdnResp.Body.Close()
 
 	cdnBody, _ := io.ReadAll(cdnResp.Body)
-	slog.Debug("MAX CDN response", "status", cdnResp.StatusCode)
+	slog.Debug("MAX CDN response", "status", cdnResp.StatusCode, "body", string(cdnBody))
+
+	// Проверяем ошибку запрещённого расширения
+	var apiErr struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(cdnBody, &apiErr) == nil && apiErr.Code == "upload.error" {
+		slog.Warn("MAX upload rejected", "code", apiErr.Code, "message", apiErr.Message, "file", fileName)
+		return nil, &ErrForbiddenExtension{Name: fileName}
+	}
 
 	// 3. Парсим CDN ответ (fileId в camelCase)
 	var cdnResult struct {
@@ -146,11 +169,7 @@ func (b *Bridge) customUploadToMax(ctx context.Context, uploadType maxschemes.Up
 		slog.Debug("MAX upload ok", "fileId", cdnResult.FileID)
 		return &maxschemes.UploadedInfo{Token: cdnResult.Token, FileID: cdnResult.FileID}, nil
 	}
-	if endpoint.Token != "" {
-		slog.Debug("MAX upload ok (endpoint token)")
-		return &maxschemes.UploadedInfo{Token: endpoint.Token}, nil
-	}
-	return nil, fmt.Errorf("no token: endpoint and CDN both empty")
+	return nil, fmt.Errorf("no token in CDN response: %s", string(cdnBody))
 }
 
 // uploadTgPhotoToMax скачивает фото из TG и загружает в MAX через SDK (возвращает PhotoTokens).
@@ -314,6 +333,15 @@ type ErrFileTooLarge struct {
 
 func (e *ErrFileTooLarge) Error() string {
 	return fmt.Sprintf("file too large: %s (%s)", e.Name, formatFileSize(int(e.Size)))
+}
+
+// ErrForbiddenExtension is returned when MAX API rejects the file extension.
+type ErrForbiddenExtension struct {
+	Name string
+}
+
+func (e *ErrForbiddenExtension) Error() string {
+	return fmt.Sprintf("file extension forbidden by MAX: %s", e.Name)
 }
 
 // downloadURLWithLimit downloads a file from URL with an optional size limit.

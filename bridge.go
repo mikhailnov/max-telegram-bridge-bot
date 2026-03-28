@@ -25,6 +25,9 @@ type Config struct {
 	AllowedUsers     []int64 // whitelist TG user IDs (empty = allow all)
 	TgMaxFileSizeMB  int     // max file size TG->MAX in MB (0 = unlimited)
 	MaxMaxFileSizeMB int     // max file size MAX->TG in MB (0 = unlimited)
+	// MaxAllowedExts — whitelist расширений для TG→MAX (nil = не проверять локально).
+	// Если задан, файлы с не-вхождением блокируются до отправки на CDN.
+	MaxAllowedExts map[string]struct{}
 }
 
 // chatBreaker хранит состояние circuit breaker для одного чата.
@@ -148,9 +151,11 @@ func (b *Bridge) isUserAllowed(tgUserID int64) bool {
 	return false
 }
 
-// checkUserAllowed проверяет доступ и отправляет отказ если запрещён.
+// checkUserAllowed проверяет доступ пользователя и отправляет сообщение об отказе если нужно.
+// Возвращает true если доступ разрешён, false — если запрещён (и уже отправил ответ).
+// userID == 0 трактуется как «нет отправителя» — доступ запрещается.
 func (b *Bridge) checkUserAllowed(chatID, userID int64) bool {
-	if b.isUserAllowed(userID) {
+	if userID != 0 && b.isUserAllowed(userID) {
 		return true
 	}
 	slog.Debug("TG user not allowed", "uid", userID)

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -253,7 +255,6 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 			// Проверка прав админа в группах
 			isGroup := isTgGroup(msg.Chat.Type)
 			isAdmin := false
-			adminCheckFailed := false
 			if isGroup && msg.From != nil {
 				member, err := b.tgBot.GetChatMember(tgbotapi.GetChatMemberConfig{
 					ChatConfigWithUser: tgbotapi.ChatConfigWithUser{
@@ -261,23 +262,18 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 						UserID: msg.From.ID,
 					},
 				})
-				if err != nil {
-					slog.Warn("TG GetChatMember failed", "err", err, "chat", msg.Chat.ID, "user", msg.From.ID)
-					adminCheckFailed = true
-				} else {
-					slog.Debug("TG GetChatMember", "status", member.Status, "user", msg.From.ID)
+				if err == nil {
 					isAdmin = isTgAdmin(member.Status)
 				}
 			}
 
 			// /bridge prefix on/off
 			if text == "/bridge prefix on" || text == "/bridge prefix off" {
-				if msg.From != nil && !b.isUserAllowed(msg.From.ID) {
-					slog.Debug("TG user not allowed", "uid", msg.From.ID)
+				if !b.checkUserAllowed(msg.Chat.ID, tgUserID(msg)) {
 					continue
 				}
 				if isGroup && !isAdmin {
-					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, tgAdminCheckMsg(adminCheckFailed)))
+					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Эта команда доступна только админам группы."))
 					continue
 				}
 				on := text == "/bridge prefix on"
@@ -295,12 +291,11 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			// /bridge или /bridge <key>
 			if text == "/bridge" || strings.HasPrefix(text, "/bridge ") {
-				if msg.From != nil && !b.isUserAllowed(msg.From.ID) {
-					slog.Debug("TG user not allowed", "uid", msg.From.ID)
+				if !b.checkUserAllowed(msg.Chat.ID, tgUserID(msg)) {
 					continue
 				}
 				if isGroup && !isAdmin {
-					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, tgAdminCheckMsg(adminCheckFailed)))
+					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Эта команда доступна только админам группы."))
 					continue
 				}
 				key := strings.TrimSpace(strings.TrimPrefix(text, "/bridge"))
@@ -327,10 +322,10 @@ func (b *Bridge) listenTelegram(ctx context.Context) {
 
 			if text == "/unbridge" {
 				if isGroup && !isAdmin {
-					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, tgAdminCheckMsg(adminCheckFailed)))
+					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Эта команда доступна только админам группы."))
 					continue
 				}
-				if !b.isUserAllowed(tgUserID(msg)) {
+				if !b.checkUserAllowed(msg.Chat.ID, tgUserID(msg)) {
 					continue
 				}
 				if b.repo.Unpair("tg", msg.Chat.ID) {
@@ -432,12 +427,16 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX photo upload failed", "err", err)
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить фото в MAX."))
+				return
 			}
 		} else if fileURL, err := b.tgFileURL(photo.FileID); err == nil {
 			if uploaded, err := b.maxApi.Uploads.UploadPhotoFromUrl(ctx, fileURL); err == nil {
 				m.AddPhoto(uploaded)
 			} else {
 				slog.Error("TG→MAX photo upload failed", "err", err)
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить фото в MAX."))
+				return
 			}
 		}
 		if msg.ReplyToMessage != nil {
@@ -473,6 +472,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX gif upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Не удалось отправить GIF \"%s\" в MAX.", name)))
+			return
 		}
 	} else if msg.Sticker != nil {
 		// Стикеры: обычные — WebP (фото), анимированные — TGS/WEBM
@@ -485,6 +486,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 				mediaAttType = "video"
 			} else {
 				slog.Error("TG→MAX sticker upload failed", "err", err)
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить стикер в MAX."))
+				return
 			}
 		} else {
 			// Обычный стикер WebP → отправляем как фото
@@ -501,6 +504,7 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 					result, err := b.maxApi.Messages.SendWithResult(ctx, m)
 					if err != nil {
 						slog.Error("TG→MAX sticker send failed", "err", err)
+						b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить стикер в MAX."))
 					} else {
 						slog.Info("TG→MAX sent", "mid", result.Body.Mid)
 						b.repo.SaveMsg(msg.Chat.ID, msg.MessageID, maxChatID, result.Body.Mid)
@@ -508,6 +512,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 					return
 				} else {
 					slog.Error("TG→MAX sticker photo upload failed", "err", err)
+					b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить стикер в MAX."))
+					return
 				}
 			}
 		}
@@ -524,6 +530,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX video upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Не удалось отправить видео \"%s\" в MAX.", name)))
+			return
 		}
 	} else if msg.VideoNote != nil {
 		if checkSize(msg.VideoNote.FileSize, "circle.mp4") {
@@ -534,6 +542,8 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			mediaAttType = "video"
 		} else {
 			slog.Error("TG→MAX video note upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить кружок в MAX."))
+			return
 		}
 	} else if msg.Document != nil {
 		name := msg.Document.FileName
@@ -553,11 +563,29 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 		if checkSize(msg.Document.FileSize, name) {
 			return
 		}
+		// Pre-check расширения до отправки на CDN (если whitelist задан)
+		if b.cfg.MaxAllowedExts != nil && attType == "file" {
+			ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+			if _, ok := b.cfg.MaxAllowedExts[ext]; !ok {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (расширение .%s не разрешено).", name, ext)))
+				return
+			}
+		}
 		if uploaded, err := b.uploadTgMediaToMax(ctx, msg.Document.FileID, uploadType, name); err == nil {
 			mediaToken = uploaded.Token
 			mediaAttType = attType
 		} else {
+			var e *ErrForbiddenExtension
+			if errors.As(err, &e) {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", name)))
+				return
+			}
 			slog.Error("TG→MAX file upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+				fmt.Sprintf("Не удалось отправить файл \"%s\" в MAX.", name)))
+			return
 		}
 	} else if msg.Voice != nil {
 		if checkSize(msg.Voice.FileSize, "voice.ogg") {
@@ -567,7 +595,15 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 			mediaToken = uploaded.Token
 			mediaAttType = "audio"
 		} else {
+			var e *ErrForbiddenExtension
+			if errors.As(err, &e) {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", e.Name)))
+				return
+			}
 			slog.Error("TG→MAX voice upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Не удалось отправить голосовое сообщение в MAX."))
+			return
 		}
 	} else if msg.Audio != nil {
 		name := "audio.mp3"
@@ -577,11 +613,28 @@ func (b *Bridge) forwardTgToMax(ctx context.Context, msg *tgbotapi.Message, maxC
 		if checkSize(msg.Audio.FileSize, name) {
 			return
 		}
+		// Pre-check расширения до отправки на CDN (если whitelist задан)
+		if b.cfg.MaxAllowedExts != nil {
+			ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+			if _, ok := b.cfg.MaxAllowedExts[ext]; !ok {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (расширение .%s не разрешено).", name, ext)))
+				return
+			}
+		}
 		if uploaded, err := b.uploadTgMediaToMax(ctx, msg.Audio.FileID, maxschemes.FILE, name); err == nil {
 			mediaToken = uploaded.Token
 			mediaAttType = "file"
 		} else {
+			var e *ErrForbiddenExtension
+			if errors.As(err, &e) {
+				b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID,
+					fmt.Sprintf("Файл \"%s\" не поддерживается в MAX (запрещённое расширение).", name)))
+				return
+			}
 			slog.Error("TG→MAX audio upload failed", "err", err)
+			b.tgBot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Не удалось отправить аудио \"%s\" в MAX.", name)))
+			return
 		}
 	}
 
